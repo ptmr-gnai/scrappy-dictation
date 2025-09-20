@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Speech Recognition</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            font-size: 24px;
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+        .idle { background: #e3f2fd; color: #1976d2; }
+        .listening { background: #ffebee; color: #d32f2f; animation: pulse 1s infinite; }
+        .processing { background: #fff3e0; color: #f57c00; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .error { background: #ffebee; color: #d32f2f; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .transcript {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            min-height: 100px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: background 0.2s;
+        }
+
+        .button:hover { background: #0056CC; }
+        .button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .info {
+            background: #e3f2fd;
+            border: 1px solid #1976d2;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Auto Speech Recognition</h1>
+
+        <div id="status" class="status idle">
+            Ready - Waiting for activation...
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" class="button">Start Listening</button>
+            <button id="stopBtn" class="button hidden">Stop Listening</button>
+        </div>
+
+        <div class="info">
+            <strong>Auto-Mode Instructions:</strong><br>
+            • This page will auto-start listening when activated by the clipboard bridge<br>
+            • Speak clearly and naturally<br>
+            • Text will be automatically copied to clipboard when you finish<br>
+            • The clipboard bridge will then auto-paste to your active app
+        </div>
+
+        <div class="transcript" id="transcript">
+            <em>Transcribed text will appear here...</em>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let recognition = null;
+        let isListening = false;
+        let autoStarted = false;
+
+        // UI elements
+        const statusDiv = document.getElementById('status');
+        const transcriptDiv = document.getElementById('transcript');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        // Check browser support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            statusDiv.innerHTML = '❌ Speech Recognition not supported in this browser';
+            statusDiv.className = 'status error';
+            startBtn.disabled = true;
+        } else {
+            initializeSpeechRecognition();
+        }
+
+        function initializeSpeechRecognition() {
+            recognition = new SpeechRecognition();
+
+            // Configure recognition
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            // Event handlers
+            recognition.onstart = () => {
+                isListening = true;
+                statusDiv.innerHTML = '🔴 Listening... Speak now!';
+                statusDiv.className = 'status listening';
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+
+                console.log('Speech recognition started');
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                statusDiv.innerHTML = '⏹️ Stopped listening';
+                statusDiv.className = 'status idle';
+                startBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+
+                console.log('Speech recognition ended');
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+
+                isListening = false;
+                statusDiv.innerHTML = `❌ Error: ${event.error}`;
+                statusDiv.className = 'status error';
+                startBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+
+                // Auto-retry on certain errors
+                if (event.error === 'no-speech' && autoStarted) {
+                    setTimeout(() => {
+                        console.log('Auto-retrying after no-speech error...');
+                        startListening();
+                    }, 1000);
+                }
+            };
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const result = event.results[i];
+                    if (result.isFinal) {
+                        finalTranscript += result[0].transcript;
+                    } else {
+                        interimTranscript += result[0].transcript;
+                    }
+                }
+
+                // Update display
+                if (finalTranscript) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    transcriptDiv.innerHTML += `<div><strong>[${timestamp}]</strong> ${finalTranscript}</div>`;
+
+                    console.log('Final transcript:', finalTranscript);
+
+                    // Copy to clipboard automatically
+                    copyToClipboard(finalTranscript);
+                }
+
+                if (interimTranscript) {
+                    // Show interim results
+                    const interimDiv = document.getElementById('interim') || document.createElement('div');
+                    interimDiv.id = 'interim';
+                    interimDiv.style.color = '#888';
+                    interimDiv.style.fontStyle = 'italic';
+                    interimDiv.innerHTML = `<em>Interim: ${interimTranscript}</em>`;
+
+                    if (!document.getElementById('interim')) {
+                        transcriptDiv.appendChild(interimDiv);
+                    }
+                } else {
+                    // Remove interim when we get final results
+                    const interimDiv = document.getElementById('interim');
+                    if (interimDiv) {
+                        interimDiv.remove();
+                    }
+                }
+            };
+        }
+
+        function startListening() {
+            if (!recognition || isListening) return;
+
+            try {
+                recognition.start();
+                autoStarted = true;
+            } catch (error) {
+                console.error('Failed to start recognition:', error);
+                statusDiv.innerHTML = `❌ Failed to start: ${error.message}`;
+                statusDiv.className = 'status error';
+            }
+        }
+
+        function stopListening() {
+            if (!recognition || !isListening) return;
+
+            recognition.stop();
+            autoStarted = false;
+        }
+
+        function copyToClipboard(text) {
+            // Try modern clipboard API (works on localhost)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    console.log('✅ Text copied to clipboard:', text);
+
+                    statusDiv.innerHTML = '✅ Copied to clipboard!';
+                    statusDiv.className = 'status success';
+
+                    setTimeout(() => {
+                        if (!isListening) {
+                            statusDiv.innerHTML = 'Ready - Waiting for activation...';
+                            statusDiv.className = 'status idle';
+                        }
+                    }, 2000);
+
+                }).catch(error => {
+                    console.error('❌ Failed to copy to clipboard:', error);
+                    showManualCopy(text);
+                });
+            } else {
+                // Fallback for older browsers
+                showManualCopy(text);
+            }
+        }
+
+        function showManualCopy(text) {
+            // Create temporary textarea for manual copy
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+
+            try {
+                document.execCommand('copy');
+                console.log('✅ Text copied via fallback method');
+
+                statusDiv.innerHTML = '✅ Copied to clipboard!';
+                statusDiv.className = 'status success';
+            } catch (error) {
+                console.error('❌ Fallback copy failed:', error);
+
+                statusDiv.innerHTML = '⚠️ Copy failed - text in transcript';
+                statusDiv.className = 'status error';
+            }
+
+            document.body.removeChild(textarea);
+        }
+
+        // Button event listeners
+        startBtn.addEventListener('click', startListening);
+        stopBtn.addEventListener('click', stopListening);
+
+        // Auto-start when page gets focus (triggered by clipboard bridge)
+        window.addEventListener('focus', () => {
+            console.log('Page focused - checking for auto-start...');
+
+            // Auto-start if not already listening and we have recognition
+            if (recognition && !isListening && SpeechRecognition) {
+                console.log('Auto-starting speech recognition...');
+                setTimeout(startListening, 500); // Small delay to ensure page is ready
+            }
+        });
+
+        // Handle URL parameters for auto-start
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('autostart') === 'true') {
+            console.log('Auto-start requested via URL parameter');
+            setTimeout(() => {
+                if (recognition && !isListening) {
+                    startListening();
+                }
+            }, 1000);
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                if (isListening) {
+                    stopListening();
+                } else {
+                    startListening();
+                }
+            }
+        });
+
+        console.log('🎤 Auto Speech Recognition initialized');
+        console.log('• Ready for auto-start on focus');
+        console.log('• Press Cmd/Ctrl+Space to toggle listening');
+        console.log('• Text will auto-copy to clipboard');
+    </script>
+</body>
+</html>

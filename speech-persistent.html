@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Persistent Speech Recognition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 400px;
+        }
+
+        .status {
+            padding: 20px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            margin: 20px 0;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .idle {
+            background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+            border: 2px solid #718096;
+        }
+
+        .listening {
+            background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+            border: 2px solid #fc8181;
+            animation: pulse 1.5s infinite;
+            transform: scale(1.05);
+        }
+
+        .processing {
+            background: linear-gradient(135deg, #dd6b20 0%, #c05621 100%);
+            border: 2px solid #f6ad55;
+            animation: spin 2s linear infinite;
+        }
+
+        .success {
+            background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+            border: 2px solid #68d391;
+            transform: scale(1.05);
+        }
+
+        .error {
+            background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+            border: 2px solid #fc8181;
+        }
+
+        .connected {
+            background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
+            border: 2px solid #63b3ed;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1.05); }
+            50% { opacity: 0.8; transform: scale(1.1); }
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .connection-status {
+            font-size: 14px;
+            margin: 10px 0;
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+
+        .ws-connected {
+            background: rgba(56, 161, 105, 0.2);
+            border: 1px solid #38a169;
+            color: #68d391;
+        }
+
+        .ws-disconnected {
+            background: rgba(229, 62, 62, 0.2);
+            border: 1px solid #e53e3e;
+            color: #fc8181;
+        }
+
+        .transcript-log {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            text-align: left;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .transcript-entry {
+            margin: 5px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .timestamp {
+            color: #a0aec0;
+            font-size: 10px;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 0 5px;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .version {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            font-size: 10px;
+            color: #718096;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Persistent Dictation</h1>
+
+        <div id="connectionStatus" class="connection-status ws-disconnected">
+            Connecting to controller...
+        </div>
+
+        <div id="status" class="status idle">
+            Initializing...
+        </div>
+
+        <div class="controls">
+            <button id="testBtn" class="btn" onclick="testSpeech()">Test Speech</button>
+            <button id="pingBtn" class="btn" onclick="sendPing()">Ping Controller</button>
+            <button id="clearBtn" class="btn" onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <div id="transcriptLog" class="transcript-log">
+            <div class="transcript-entry">
+                <span class="timestamp">System ready</span><br>
+                Waiting for commands from controller...
+            </div>
+        </div>
+    </div>
+
+    <div class="version">v1.0</div>
+
+    <script>
+        class PersistentSpeechRecognition {
+            constructor() {
+                this.websocket = null;
+                this.recognition = null;
+                this.isListening = false;
+                this.isConnected = false;
+                this.retryCount = 0;
+                this.maxRetries = 3;
+                this.reconnectDelay = 2000;
+
+                // UI elements
+                this.statusDiv = document.getElementById('status');
+                this.connectionDiv = document.getElementById('connectionStatus');
+                this.logDiv = document.getElementById('transcriptLog');
+
+                this.init();
+            }
+
+            init() {
+                this.log('Initializing persistent speech recognition...');
+                this.initSpeechRecognition();
+                this.connectWebSocket();
+            }
+
+            initSpeechRecognition() {
+                if (!('webkitSpeechRecognition' in window)) {
+                    this.log('❌ Speech recognition not supported in this browser', 'error');
+                    this.updateStatus('error', '❌ Speech not supported');
+                    return;
+                }
+
+                this.recognition = new webkitSpeechRecognition();
+                this.recognition.continuous = false;
+                this.recognition.interimResults = false;
+                this.recognition.lang = 'en-US';
+                this.recognition.maxAlternatives = 1;
+
+                this.recognition.onstart = () => {
+                    this.isListening = true;
+                    this.log('🎙️  Speech recognition started');
+                    this.updateStatus('listening', '🔴 Listening...');
+                    this.sendToController('SPEECH_STARTED');
+                };
+
+                this.recognition.onend = () => {
+                    this.isListening = false;
+                    this.log('⏹️  Speech recognition ended');
+                    this.updateStatus('idle', '⏸️  Ready');
+                    this.sendToController('SPEECH_ENDED');
+                };
+
+                this.recognition.onerror = (event) => {
+                    this.log(`❌ Speech error: ${event.error}`, 'error');
+                    this.handleSpeechError(event.error);
+                };
+
+                this.recognition.onresult = (event) => {
+                    if (event.results.length > 0) {
+                        const transcript = event.results[0][0].transcript.trim();
+                        const confidence = event.results[0][0].confidence;
+
+                        this.log(`📝 Transcript: "${transcript}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
+                        this.handleTranscript(transcript);
+                    }
+                };
+
+                this.log('✅ Speech recognition initialized');
+            }
+
+            connectWebSocket() {
+                try {
+                    this.websocket = new WebSocket('ws://localhost:8081');
+
+                    this.websocket.onopen = () => {
+                        this.isConnected = true;
+                        this.retryCount = 0;
+                        this.log('🔌 Connected to controller');
+                        this.updateConnectionStatus(true);
+                        this.updateStatus('connected', '🔗 Connected');
+
+                        // Send ready signal
+                        this.sendToController('READY');
+                    };
+
+                    this.websocket.onclose = () => {
+                        this.isConnected = false;
+                        this.log('🔌 Disconnected from controller');
+                        this.updateConnectionStatus(false);
+                        this.updateStatus('error', '🔌 Disconnected');
+
+                        // Auto-reconnect
+                        this.scheduleReconnect();
+                    };
+
+                    this.websocket.onerror = (error) => {
+                        this.log(`❌ WebSocket error: ${error}`, 'error');
+                        this.updateConnectionStatus(false);
+                    };
+
+                    this.websocket.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.handleCommand(data);
+                        } catch (error) {
+                            this.log(`❌ Invalid command received: ${event.data}`, 'error');
+                        }
+                    };
+
+                } catch (error) {
+                    this.log(`❌ Failed to connect: ${error}`, 'error');
+                    this.scheduleReconnect();
+                }
+            }
+
+            scheduleReconnect() {
+                if (this.retryCount < this.maxRetries) {
+                    this.retryCount++;
+                    this.log(`🔄 Reconnecting in ${this.reconnectDelay/1000}s (attempt ${this.retryCount}/${this.maxRetries})`);
+
+                    setTimeout(() => {
+                        this.connectWebSocket();
+                    }, this.reconnectDelay);
+
+                    this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, 10000); // Backoff
+                } else {
+                    this.log('❌ Max reconnection attempts reached', 'error');
+                    this.updateStatus('error', '❌ Connection failed');
+                }
+            }
+
+            handleCommand(data) {
+                const { type } = data;
+                this.log(`📨 Command received: ${type}`);
+
+                switch (type) {
+                    case 'START_LISTENING':
+                        this.startListening();
+                        break;
+
+                    case 'STOP_LISTENING':
+                        this.stopListening();
+                        break;
+
+                    case 'PING':
+                        this.sendToController('PONG');
+                        break;
+
+                    case 'ACKNOWLEDGE':
+                        this.log(`✅ Controller acknowledged: ${data.message}`);
+                        this.updateStatus('idle', '✅ Ready');
+                        break;
+
+                    default:
+                        this.log(`⚠️  Unknown command: ${type}`, 'warning');
+                }
+            }
+
+            startListening() {
+                if (this.isListening) {
+                    this.log('⚠️  Already listening', 'warning');
+                    return;
+                }
+
+                if (!this.recognition) {
+                    this.log('❌ Speech recognition not available', 'error');
+                    return;
+                }
+
+                try {
+                    this.log('🎙️  Starting speech recognition...');
+                    this.recognition.start();
+                } catch (error) {
+                    this.log(`❌ Failed to start speech: ${error}`, 'error');
+                    this.sendToController('SPEECH_ERROR', { error: error.toString() });
+                }
+            }
+
+            stopListening() {
+                if (!this.isListening) {
+                    this.log('⚠️  Not currently listening', 'warning');
+                    return;
+                }
+
+                try {
+                    this.log('⏹️  Stopping speech recognition...');
+                    this.recognition.stop();
+                } catch (error) {
+                    this.log(`❌ Failed to stop speech: ${error}`, 'error');
+                }
+            }
+
+            handleTranscript(transcript) {
+                if (!transcript || transcript.length === 0) {
+                    this.log('⚠️  Empty transcript received', 'warning');
+                    return;
+                }
+
+                this.log(`✨ Processing transcript: "${transcript}"`);
+                this.updateStatus('processing', '📋 Copying...');
+
+                // Copy to clipboard
+                this.copyToClipboard(transcript);
+            }
+
+            copyToClipboard(text) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        this.log(`✅ Copied to clipboard: "${text}"`);
+                        this.updateStatus('success', '✅ Copied!');
+
+                        // Send to controller
+                        this.sendToController('TRANSCRIPT_READY', { text: text });
+
+                        // Reset status after delay
+                        setTimeout(() => {
+                            if (this.isConnected) {
+                                this.updateStatus('idle', '✅ Ready');
+                            }
+                        }, 2000);
+
+                    }).catch(error => {
+                        this.log(`❌ Failed to copy to clipboard: ${error}`, 'error');
+                        this.updateStatus('error', '❌ Copy failed');
+
+                        // Still send to controller (might work via other means)
+                        this.sendToController('TRANSCRIPT_READY', { text: text });
+                    });
+                } else {
+                    this.log('⚠️  Clipboard API not available, using fallback', 'warning');
+                    this.fallbackCopy(text);
+                }
+            }
+
+            fallbackCopy(text) {
+                try {
+                    // Create temporary textarea
+                    const textarea = document.createElement('textarea');
+                    textarea.value = text;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+
+                    const success = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+
+                    if (success) {
+                        this.log(`✅ Copied via fallback: "${text}"`);
+                        this.updateStatus('success', '✅ Copied!');
+                        this.sendToController('TRANSCRIPT_READY', { text: text });
+                    } else {
+                        throw new Error('execCommand failed');
+                    }
+
+                } catch (error) {
+                    this.log(`❌ Fallback copy failed: ${error}`, 'error');
+                    this.updateStatus('error', '❌ Copy failed');
+
+                    // Still send transcript to controller
+                    this.sendToController('TRANSCRIPT_READY', { text: text });
+                }
+            }
+
+            handleSpeechError(error) {
+                this.log(`❌ Speech error: ${error}`, 'error');
+
+                // Auto-retry on certain errors
+                if (error === 'no-speech' && this.retryCount < this.maxRetries) {
+                    this.retryCount++;
+                    this.log(`🔄 Auto-retrying speech (${this.retryCount}/${this.maxRetries})`);
+
+                    setTimeout(() => {
+                        this.startListening();
+                    }, 1000);
+                } else {
+                    this.updateStatus('error', `❌ ${error}`);
+                    this.sendToController('SPEECH_ERROR', { error: error });
+                    this.retryCount = 0;
+                }
+            }
+
+            sendToController(type, data = {}) {
+                if (!this.isConnected || !this.websocket) {
+                    this.log(`⚠️  Cannot send ${type}: not connected`, 'warning');
+                    return;
+                }
+
+                try {
+                    const message = JSON.stringify({
+                        type: type,
+                        timestamp: Date.now(),
+                        ...data
+                    });
+
+                    this.websocket.send(message);
+                    this.log(`📤 Sent: ${type}`);
+
+                } catch (error) {
+                    this.log(`❌ Failed to send ${type}: ${error}`, 'error');
+                }
+            }
+
+            updateStatus(className, text) {
+                this.statusDiv.className = `status ${className}`;
+                this.statusDiv.textContent = text;
+            }
+
+            updateConnectionStatus(connected) {
+                if (connected) {
+                    this.connectionDiv.className = 'connection-status ws-connected';
+                    this.connectionDiv.textContent = '🔗 Controller connected';
+                } else {
+                    this.connectionDiv.className = 'connection-status ws-disconnected';
+                    this.connectionDiv.textContent = '🔌 Controller disconnected';
+                }
+            }
+
+            log(message, level = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] ${message}`);
+
+                // Add to UI log
+                const entry = document.createElement('div');
+                entry.className = 'transcript-entry';
+                entry.innerHTML = `
+                    <span class="timestamp">${timestamp}</span><br>
+                    ${message}
+                `;
+
+                this.logDiv.appendChild(entry);
+                this.logDiv.scrollTop = this.logDiv.scrollHeight;
+
+                // Keep log size manageable
+                while (this.logDiv.children.length > 50) {
+                    this.logDiv.removeChild(this.logDiv.firstChild);
+                }
+            }
+        }
+
+        // Global functions for manual testing
+        window.testSpeech = function() {
+            if (window.speechSystem) {
+                window.speechSystem.startListening();
+            }
+        };
+
+        window.sendPing = function() {
+            if (window.speechSystem) {
+                window.speechSystem.sendToController('PING');
+            }
+        };
+
+        window.clearLog = function() {
+            const logDiv = document.getElementById('transcriptLog');
+            logDiv.innerHTML = '<div class="transcript-entry"><span class="timestamp">Log cleared</span><br>Ready for new entries...</div>';
+        };
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🎤 Initializing Persistent Speech Recognition');
+            window.speechSystem = new PersistentSpeechRecognition();
+        });
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                console.log('👁️  Page visible - ensuring connection');
+                if (window.speechSystem && !window.speechSystem.isConnected) {
+                    window.speechSystem.connectWebSocket();
+                }
+            }
+        });
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            if (window.speechSystem && window.speechSystem.websocket) {
+                window.speechSystem.websocket.close();
+            }
+        });
+    </script>
+</body>
+</html>
