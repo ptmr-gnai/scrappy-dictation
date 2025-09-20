@@ -29,46 +29,59 @@ Prioritize solutions that:
 - Compound in value over time
 
 ## Tech Stack
-- Framework: [Add your framework and version]
-- Language: [Add your language and version]
-- Database: [Add your database and version]
-- Package Manager: [Add your package manager]
+- **Core Language**: Python 3.9+
+- **Speech Recognition**: Chrome Web Speech API (Google's engine)
+- **WebSocket Communication**: websockets 15.x
+- **System Integration**: pynput (global hotkeys), pyperclip (clipboard)
+- **HTTP Server**: Built-in Python http.server
+- **Browser**: Google Chrome (persistent background tab)
+- **Platform**: macOS (accessibility APIs)
 
 ## Project Structure
 ```
-src/                    # Source code
-├── components/         # Reusable UI components
-├── lib/               # Core utilities and helpers
-├── types/             # TypeScript definitions
-├── hooks/             # Custom React hooks (if applicable)
-└── utils/             # Helper functions
-tests/                 # Test files
-docs/                  # Documentation
-scripts/               # Automation scripts
-.claude/               # Claude-specific configurations
+scrappy-dictation/                    # Zero-manual-step dictation system
+├── websocket_dictation_fixed.py     # 🚀 MAIN: Complete working system
+├── speech-persistent.html           # WebSocket-controlled Chrome tab
+├── websocket_server.py              # WebSocket communication infrastructure
+├── clipboard_bridge_v*.py           # Evolution: Simple clipboard approaches
+├── speech-auto.html                 # Auto-start speech recognition page
+├── concept.md                       # Initial brainstorming and approaches
+├── *-bridge-plan.md                 # Implementation strategy documents
+├── websocket-solution-proposal.md   # Technical architecture specification
+└── CLAUDE.md                        # This configuration file
 ```
 
 ## Essential Commands
 ```bash
-# Development
-npm run dev            # Start development server
-npm run build          # Production build
-npm run test           # Run test suite
-npm run lint           # Code linting
-npm run typecheck      # Type validation
+# Core Dictation System
+python3 websocket_dictation_fixed.py  # 🚀 Start complete dictation system
+# Usage: Right Cmd → continuous listening → Right Cmd → paste
 
-# Automation Opportunities
-# TODO: Add project-specific automation scripts here
-# Example: npm run setup-dev-env, npm run generate-component
+# Dependencies
+pip3 install websockets pynput pyperclip  # Install required packages
+
+# System Setup (one-time)
+# macOS: System Preferences → Security & Privacy → Privacy → Input Monitoring
+# Add Terminal to allowed apps for global hotkey monitoring
+
+# Development & Testing
+python3 websocket_server.py           # Test WebSocket server standalone
+open speech-persistent.html           # Manual browser testing
+git log --oneline -5                  # Review recent development progress
+
+# Legacy Approaches (for reference)
+python3 clipboard_bridge_v3.py        # Simple clipboard-based approach
+python3 dictation-server.py           # Original Terminal-only version
 ```
 
 ## Code Style & Conventions
-- Use ES modules (import/export)
-- Prefer composition over inheritance
-- Destructure imports: `import { useState } from 'react'`
-- File naming: `kebab-case` for files, `PascalCase` for components
-- Function naming: `camelCase` with descriptive verbs
-- Constants: `UPPER_SNAKE_CASE`
+- **Python Files**: `snake_case` for modules, `PascalCase` for classes
+- **HTML Files**: `kebab-case` with descriptive purpose (e.g., `speech-persistent.html`)
+- **Function Naming**: Descriptive verbs (`handle_transcript`, `start_dictation`)
+- **Async/Await**: Consistent async patterns with proper thread-safe communication
+- **Error Handling**: Comprehensive try/catch with user-friendly error messages
+- **WebSocket Protocol**: Structured JSON messages with `type` and `timestamp` fields
+- **Documentation**: Inline docstrings for complex async coordination
 
 ## Efficiency Patterns to Promote
 1. **Template Creation**: When creating similar files, generate templates
@@ -92,32 +105,33 @@ npm run typecheck      # Type validation
 - PR requirements: Tests pass, linting clean, description includes context
 - Code review: Focus on maintainability and future developer experience
 
-## Automation Opportunities Checklist
-Track and implement these efficiency multipliers:
+## Key Patterns Discovered This Session
 
-### Development Setup
-- [ ] One-command environment setup
-- [ ] Automated dependency installation
-- [ ] Development database seeding
-- [ ] Environment variable templates
+### 1. **Iterative Complexity Management**
+- **Pattern**: Start with simplest possible solution, then add complexity only when needed
+- **Example**: clipboard_bridge.py → clipboard_bridge_v2.py → websocket_dictation_fixed.py
+- **Learning**: Each iteration solved specific limitations without over-engineering
 
-### Code Generation
-- [ ] Component scaffolding scripts
-- [ ] API endpoint generators
-- [ ] Test file templates
-- [ ] Documentation generators
+### 2. **Thread-Safe Async Communication**
+- **Challenge**: Global hotkeys run in different thread than WebSocket event loop
+- **Solution**: `asyncio.run_coroutine_threadsafe()` for cross-thread async coordination
+- **Anti-Pattern**: Using `asyncio.create_task()` from sync thread (causes "no event loop" errors)
 
-### Quality Assurance
-- [ ] Pre-commit hooks for linting/formatting
-- [ ] Automated test running on file changes
-- [ ] Continuous integration pipeline
-- [ ] Dependency security scanning
+### 3. **WebSocket Protocol Design**
+- **Effective Pattern**: Structured JSON messages with `type`, `timestamp`, and specific data fields
+- **Key Insight**: Browser-to-server communication works better than server-to-browser control
+- **Learning**: WebSocket serves as command channel, not data pipeline (clipboard handles data)
 
-### Deployment
-- [ ] One-command deployment scripts
-- [ ] Environment-specific configurations
-- [ ] Rollback procedures
-- [ ] Health check automation
+### 4. **Hardware Constraint Workarounds**
+- **Constraint**: 2015 MBP insufficient for local AI models
+- **Creative Solution**: Leverage Chrome's cloud-connected speech recognition APIs
+- **Architecture**: Local coordination + cloud processing = optimal resource utilization
+
+### 5. **User Experience Iteration**
+- **V1**: Manual clicking required → Poor UX
+- **V2**: Auto-start but auto-stop between pauses → Interrupts natural speech
+- **V3**: User-controlled start/stop with text accumulation → Perfect workflow
+- **Learning**: UX details matter more than technical sophistication
 
 ## Continuous Learning Protocol
 At the end of each session, consider:
@@ -129,17 +143,32 @@ At the end of each session, consider:
 5. **What patterns emerged?** → Can we template them?
 
 ## Session Improvement Tracking
-```markdown
-<!-- Update after each significant session -->
+
 ## Recent Improvements
-- [Date]: [What was improved and why]
-- [Date]: [What efficiency was gained]
+- **2025-09-20**: Built complete zero-manual-step dictation system from concept to production
+  - **Evolution**: clipboard_bridge.py → websocket_dictation_fixed.py (solved all manual interaction issues)
+  - **Breakthrough**: WebSocket-controlled persistent Chrome tab eliminates UI interaction
+  - **Key Innovation**: Continuous speech accumulation until user explicitly stops
+  - **Technical Win**: Thread-safe async/sync coordination for global hotkeys + WebSocket communication
+  - **Result**: Right Cmd → continuous listening → Right Cmd → complete text paste (no interruptions)
+
+- **2025-09-20**: Solved websockets 15.x compatibility issues through iterative debugging
+  - **Pattern**: Modern library versions often change handler signatures - always check version compatibility
+  - **Solution**: Used proper async function signatures instead of lambda wrappers
+
+- **2025-09-20**: Achieved Google-quality speech recognition on 2015 MBP hardware limitation
+  - **Constraint**: 2015 MBP can't run local Whisper models
+  - **Breakthrough**: Chrome Web Speech API provides high-quality recognition via cloud processing
+  - **Architecture**: Local WebSocket server + persistent browser tab = best of both worlds
 
 ## Next Optimization Targets
-- [ ] [Specific inefficiency to address]
-- [ ] [Process to automate]
-- [ ] [Pattern to template]
-```
+- [ ] **Auto-startup script**: Create launch daemon for system startup integration
+- [ ] **Voice commands**: Extend beyond dictation to include system control ("new line", "delete last word")
+- [ ] **Multi-language support**: Dynamic language switching via voice commands or hotkeys
+- [ ] **Text formatting**: Voice-controlled punctuation and formatting ("all caps", "new paragraph")
+- [ ] **Custom vocabulary**: Personal name/term recognition and auto-correction
+- [ ] **Usage analytics**: Track dictation sessions and accuracy improvements over time
+- [ ] **Port binding optimization**: Smart port selection to avoid conflicts with other services
 
 ## Do Not
 - Manually repeat tasks that could be scripted
