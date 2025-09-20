@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Recognition Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .button { background: #007AFF; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        .button:hover { background: #0056CC; }
+        .button:disabled { background: #ccc; cursor: not-allowed; }
+        #output { border: 1px solid #ddd; padding: 15px; margin: 10px 0; min-height: 100px; background: #f9f9f9; }
+        .status { font-weight: bold; margin: 10px 0; }
+        .error { color: red; }
+        .success { color: green; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>Speech Recognition Test</h1>
+
+    <div class="status" id="status">Ready to test speech recognition</div>
+
+    <button id="startBtn" class="button">Start Listening</button>
+    <button id="stopBtn" class="button" disabled>Stop Listening</button>
+    <button id="clearBtn" class="button">Clear Output</button>
+
+    <h3>Transcribed Text:</h3>
+    <div id="output"></div>
+
+    <h3>Browser Info:</h3>
+    <div id="browserInfo"></div>
+
+    <h3>Settings:</h3>
+    <label>
+        <input type="checkbox" id="continuous" checked> Continuous recognition
+    </label><br>
+    <label>
+        <input type="checkbox" id="interimResults" checked> Show interim results
+    </label><br>
+    <label>
+        Language: <select id="language">
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="es-ES">Spanish</option>
+            <option value="fr-FR">French</option>
+        </select>
+    </label>
+
+    <script>
+        // Check browser support
+        const browserInfo = document.getElementById('browserInfo');
+        const statusDiv = document.getElementById('status');
+        const output = document.getElementById('output');
+
+        // Display browser info
+        browserInfo.innerHTML = `
+            <strong>Browser:</strong> ${navigator.userAgent}<br>
+            <strong>Speech Recognition Support:</strong> ${window.SpeechRecognition || window.webkitSpeechRecognition ? 'Yes' : 'No'}<br>
+            <strong>Online:</strong> ${navigator.onLine ? 'Yes' : 'No'}
+        `;
+
+        // Initialize speech recognition
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            statusDiv.innerHTML = '<span class="error">Speech Recognition not supported in this browser</span>';
+            document.getElementById('startBtn').disabled = true;
+        } else {
+            const recognition = new SpeechRecognition();
+
+            // Get UI elements
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            const continuousCheckbox = document.getElementById('continuous');
+            const interimCheckbox = document.getElementById('interimResults');
+            const languageSelect = document.getElementById('language');
+
+            // Configure recognition
+            function updateRecognitionSettings() {
+                recognition.continuous = continuousCheckbox.checked;
+                recognition.interimResults = interimCheckbox.checked;
+                recognition.lang = languageSelect.value;
+            }
+
+            updateRecognitionSettings();
+
+            // Event listeners for settings
+            continuousCheckbox.addEventListener('change', updateRecognitionSettings);
+            interimCheckbox.addEventListener('change', updateRecognitionSettings);
+            languageSelect.addEventListener('change', updateRecognitionSettings);
+
+            // Recognition event handlers
+            recognition.onstart = () => {
+                statusDiv.innerHTML = '<span class="success">Listening... Speak now!</span>';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            };
+
+            recognition.onend = () => {
+                statusDiv.innerHTML = '<span class="info">Stopped listening</span>';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            };
+
+            recognition.onerror = (event) => {
+                statusDiv.innerHTML = `<span class="error">Error: ${event.error}</span>`;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+
+                // Log detailed error info
+                console.error('Speech recognition error:', event);
+            };
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const result = event.results[i];
+                    if (result.isFinal) {
+                        finalTranscript += result[0].transcript;
+                    } else {
+                        interimTranscript += result[0].transcript;
+                    }
+                }
+
+                // Update output
+                const timestamp = new Date().toLocaleTimeString();
+                if (finalTranscript) {
+                    output.innerHTML += `<div><strong>[${timestamp}]</strong> ${finalTranscript}</div>`;
+
+                    // Auto-scroll to bottom
+                    output.scrollTop = output.scrollHeight;
+
+                    // Log for potential automation
+                    console.log('Final transcript:', finalTranscript);
+
+                    // Copy text to clipboard for clipboard bridge
+                    navigator.clipboard.writeText(finalTranscript).then(() => {
+                        console.log('Text copied to clipboard:', finalTranscript);
+
+                        // Visual feedback
+                        const statusDiv = document.getElementById('status');
+                        const originalStatus = statusDiv.innerHTML;
+                        statusDiv.innerHTML = '<span class="success">✅ Copied to clipboard!</span>';
+
+                        setTimeout(() => {
+                            statusDiv.innerHTML = originalStatus;
+                        }, 2000);
+
+                    }).catch(error => {
+                        console.error('Failed to copy to clipboard:', error);
+
+                        // Fallback: show text for manual copy
+                        const copyDiv = document.createElement('div');
+                        copyDiv.style.border = '2px solid #007AFF';
+                        copyDiv.style.padding = '10px';
+                        copyDiv.style.margin = '10px 0';
+                        copyDiv.style.backgroundColor = '#E3F2FD';
+                        copyDiv.innerHTML = `
+                            <strong>Copy this text manually:</strong><br>
+                            <input type="text" value="${finalTranscript}" style="width: 100%; padding: 5px;" readonly onclick="this.select()">
+                        `;
+                        output.appendChild(copyDiv);
+                    });
+                }
+
+                if (interimTranscript) {
+                    // Show interim results in a different style
+                    const interimDiv = document.getElementById('interim') || document.createElement('div');
+                    interimDiv.id = 'interim';
+                    interimDiv.style.color = '#888';
+                    interimDiv.style.fontStyle = 'italic';
+                    interimDiv.innerHTML = `<em>Interim: ${interimTranscript}</em>`;
+
+                    if (!document.getElementById('interim')) {
+                        output.appendChild(interimDiv);
+                    }
+                } else {
+                    // Remove interim results when we get final
+                    const interimDiv = document.getElementById('interim');
+                    if (interimDiv) {
+                        interimDiv.remove();
+                    }
+                }
+            };
+
+            // Button handlers
+            startBtn.addEventListener('click', () => {
+                try {
+                    recognition.start();
+                } catch (error) {
+                    statusDiv.innerHTML = `<span class="error">Failed to start: ${error.message}</span>`;
+                }
+            });
+
+            stopBtn.addEventListener('click', () => {
+                recognition.stop();
+            });
+
+            clearBtn.addEventListener('click', () => {
+                output.innerHTML = '';
+                statusDiv.innerHTML = '<span class="info">Output cleared</span>';
+            });
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (event) => {
+                if (event.ctrlKey && event.key === ' ') {
+                    event.preventDefault();
+                    if (startBtn.disabled) {
+                        recognition.stop();
+                    } else {
+                        recognition.start();
+                    }
+                }
+            });
+
+            statusDiv.innerHTML = '<span class="success">Ready! Click "Start Listening" or press Ctrl+Space</span>';
+        }
+    </script>
+</body>
+</html>
