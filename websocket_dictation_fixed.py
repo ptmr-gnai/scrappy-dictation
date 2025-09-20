@@ -88,12 +88,15 @@ class FixedDictationServer:
             auth_data = json.loads(auth_message)
 
             if auth_data.get('type') != 'AUTH' or auth_data.get('token') != self.session_token:
+                # Send the current valid token so browser can reconnect with correct auth
                 await websocket.send(json.dumps({
                     'type': 'AUTH_FAILED',
-                    'message': 'Invalid authentication token'
+                    'message': 'Invalid authentication token',
+                    'current_token': self.session_token,
+                    'reconnect_url': f'http://127.0.0.1:{self.http_port}/speech-persistent.html?token={self.session_token}'
                 }))
                 await websocket.close()
-                print(f"🚫 Authentication failed for {websocket.remote_address}")
+                print(f"🚫 Authentication failed for {websocket.remote_address} - sent new token for reconnection")
                 return
 
             await websocket.send(json.dumps({'type': 'AUTH_SUCCESS'}))
@@ -120,10 +123,10 @@ class FixedDictationServer:
                 except Exception as e:
                     print(f"❌ Error handling message: {e}")
 
-        except websockets.exceptions.ConnectionClosed:
-            print("🔌 Authenticated client disconnected")
+        except websockets.exceptions.ConnectionClosed as e:
+            print(f"🔌 Authenticated client disconnected: code={e.code}, reason='{e.reason}'")
         except Exception as e:
-            print(f"❌ WebSocket error: {e}")
+            print(f"❌ WebSocket error: {e} (type: {type(e).__name__})")
         finally:
             self.connected_clients.discard(websocket)
             if not self.connected_clients:
@@ -227,15 +230,17 @@ class FixedDictationServer:
             self.ping_task = None
 
     async def health_monitor_loop(self):
-        """Periodic health check loop"""
+        """Periodic health check loop with aggressive keep-alive"""
         try:
             while True:
-                await asyncio.sleep(30)  # Check every 30 seconds
+                await asyncio.sleep(15)  # More frequent checks (every 15s instead of 30s)
                 if self.connected_clients:
                     print("💓 Sending health check...")
                     success = await self.send_command('PING')
                     if not success:
                         print("⚠️  Health check failed - no connected clients")
+                        # Force cleanup of dead connections
+                        self.connected_clients.clear()
         except asyncio.CancelledError:
             print("🛑 Health monitoring stopped")
         except Exception as e:

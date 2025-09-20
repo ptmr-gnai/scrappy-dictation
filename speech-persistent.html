@@ -191,11 +191,16 @@
                 this.isListening = false;
                 this.isConnected = false;
                 this.retryCount = 0;
-                this.maxRetries = 3;
-                this.reconnectDelay = 2000;
+                this.maxRetries = 5;  // Increased from 3
+                this.reconnectDelay = 1000;  // Faster initial reconnect
 
                 // Accumulate speech text until user stops
                 this.accumulatedText = '';
+
+                // Connection stability
+                this.lastPongTime = Date.now();
+                this.connectionHealthTimer = null;
+                this.preventSuspensionTimer = null;
 
                 // UI elements
                 this.statusDiv = document.getElementById('status');
@@ -203,12 +208,44 @@
                 this.logDiv = document.getElementById('transcriptLog');
 
                 this.init();
+                this.preventTabSuspension();
             }
 
             init() {
                 this.log('Initializing persistent speech recognition...');
                 this.initSpeechRecognition();
                 this.connectWebSocket();
+                this.startConnectionHealthMonitoring();
+            }
+
+            preventTabSuspension() {
+                // Prevent Chrome from suspending this tab
+                this.preventSuspensionTimer = setInterval(() => {
+                    // Minimal activity to keep tab active
+                    document.title = `🎤 Dictation - ${new Date().toLocaleTimeString()}`;
+                }, 10000);  // Every 10 seconds
+            }
+
+            startConnectionHealthMonitoring() {
+                // Monitor connection health independently
+                this.connectionHealthTimer = setInterval(() => {
+                    const timeSinceLastPong = Date.now() - this.lastPongTime;
+
+                    if (this.isConnected && timeSinceLastPong > 45000) {  // 45 seconds without pong
+                        this.log(`⚠️ Connection appears stale (${Math.round(timeSinceLastPong/1000)}s since last pong) - forcing reconnect`, 'warning');
+                        this.forceReconnect();
+                    }
+                }, 20000);  // Check every 20 seconds
+            }
+
+            forceReconnect() {
+                this.log('🔄 Forcing connection reset...');
+                this.isConnected = false;
+                this.retryCount = 0;  // Reset retry count for forced reconnects
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+                setTimeout(() => this.connectWebSocket(), 1000);
             }
 
             initSpeechRecognition() {
@@ -343,6 +380,24 @@
 
                             } else if (data.type === 'AUTH_FAILED') {
                                 this.log('❌ Authentication failed: ' + data.message, 'error');
+
+                                // If server provides new token, update URL and reconnect
+                                if (data.current_token && data.reconnect_url) {
+                                    this.log('🔄 Server provided new token - updating URL and reconnecting...');
+
+                                    // Update the browser URL with the new token
+                                    window.history.replaceState({}, '', data.reconnect_url);
+
+                                    // Reset retry count since we have a new token
+                                    this.retryCount = 0;
+                                    this.reconnectDelay = 2000;
+
+                                    // Close current connection and schedule reconnect
+                                    this.websocket.close();
+                                    this.scheduleReconnect();
+                                    return;
+                                }
+
                                 this.updateStatus('error', '❌ Auth failed');
                                 this.websocket.close();
                                 return;
@@ -393,6 +448,7 @@
                         break;
 
                     case 'PING':
+                        this.lastPongTime = Date.now();  // Track successful ping/pong
                         this.sendToController('PONG');
                         break;
 
