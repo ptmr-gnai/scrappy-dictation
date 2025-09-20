@@ -169,12 +169,12 @@ class WebSocketDictationController:
             connected = await self.wait_for_tab_connection()
 
             if connected:
-                print("✅ System ready for zero-step dictation!")
+                print("✅ System ready for continuous dictation!")
                 print("📋 Instructions:")
-                print("   • Press RIGHT CMD to start dictating")
-                print("   • Speak your text")
-                print("   • Press RIGHT CMD again to stop")
-                print("   • Text auto-pastes to active app")
+                print("   • Press RIGHT CMD to start continuous listening")
+                print("   • Speak multiple sentences with pauses")
+                print("   • Press RIGHT CMD again to stop and paste ALL text")
+                print("   • Text only pastes when you stop (not after each pause)")
                 print("   • Press Ctrl+C to quit")
             else:
                 print("⚠️  System started but Chrome tab not connected")
@@ -240,10 +240,10 @@ class WebSocketDictationController:
         """Handle hotkey activation"""
         try:
             if self.is_listening:
-                print("⏹️  Stopping dictation...")
+                print("⏹️  User stopping dictation...")
                 await self.stop_dictation()
             else:
-                print("🔴 Starting dictation...")
+                print("🔴 Starting continuous dictation...")
                 await self.start_dictation()
         except Exception as e:
             print(f"❌ Hotkey handler error: {e}")
@@ -261,7 +261,8 @@ class WebSocketDictationController:
 
         success = await self.ws_server.send_command('START_LISTENING')
         if success:
-            print("🎙️  Sent start command to Chrome tab")
+            print("🎙️  Started continuous listening - speak as much as you want")
+            print("    Text will accumulate until you press Right Cmd again")
         else:
             print("❌ Failed to send start command")
             self.is_listening = False
@@ -273,7 +274,7 @@ class WebSocketDictationController:
 
         self.is_listening = False
         await self.ws_server.send_command('STOP_LISTENING')
-        print("⏹️  Sent stop command to Chrome tab")
+        print("⏹️  Stopped listening - processing accumulated text...")
 
     def handle_transcript(self, transcript):
         """Handle transcript received from Chrome tab"""
@@ -286,12 +287,9 @@ class WebSocketDictationController:
             pyperclip.copy(transcript.strip())
             time.sleep(0.1)
             self.paste_to_active_app()
-            # Schedule stop dictation using thread-safe call
-            if self.loop:
-                asyncio.run_coroutine_threadsafe(
-                    self.stop_dictation(),
-                    self.loop
-                )
+
+            # This only happens when user explicitly stops dictation
+            print("✅ Complete dictation session pasted!")
         except Exception as e:
             print(f"❌ Error handling transcript: {e}")
 

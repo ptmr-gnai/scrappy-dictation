@@ -194,6 +194,9 @@
                 this.maxRetries = 3;
                 this.reconnectDelay = 2000;
 
+                // Accumulate speech text until user stops
+                this.accumulatedText = '';
+
                 // UI elements
                 this.statusDiv = document.getElementById('status');
                 this.connectionDiv = document.getElementById('connectionStatus');
@@ -216,8 +219,8 @@
                 }
 
                 this.recognition = new webkitSpeechRecognition();
-                this.recognition.continuous = false;
-                this.recognition.interimResults = false;
+                this.recognition.continuous = true;  // Enable continuous recognition
+                this.recognition.interimResults = true;  // Show interim results
                 this.recognition.lang = 'en-US';
                 this.recognition.maxAlternatives = 1;
 
@@ -241,12 +244,26 @@
                 };
 
                 this.recognition.onresult = (event) => {
-                    if (event.results.length > 0) {
-                        const transcript = event.results[0][0].transcript.trim();
-                        const confidence = event.results[0][0].confidence;
+                    let finalTranscript = '';
 
-                        this.log(`📝 Transcript: "${transcript}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
-                        this.handleTranscript(transcript);
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const result = event.results[i];
+                        if (result.isFinal) {
+                            finalTranscript += result[0].transcript;
+                        }
+                    }
+
+                    if (finalTranscript.trim()) {
+                        const confidence = event.results[event.results.length - 1][0].confidence;
+
+                        // Add to accumulated text instead of immediately handling
+                        this.accumulatedText += (this.accumulatedText ? ' ' : '') + finalTranscript.trim();
+
+                        this.log(`📝 Added to transcript: "${finalTranscript.trim()}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
+                        this.log(`🔄 Total accumulated: "${this.accumulatedText}"`);
+
+                        // Update status to show we're still listening
+                        this.updateStatus('listening', `🔴 Listening... (${this.accumulatedText.split(' ').length} words)`);
                     }
                 };
 
@@ -353,7 +370,10 @@
                 }
 
                 try {
-                    this.log('🎙️  Starting speech recognition...');
+                    // Clear accumulated text when starting new session
+                    this.accumulatedText = '';
+                    this.log('🎙️  Starting continuous speech recognition...');
+                    this.log('🔄 Cleared accumulated text - ready for new session');
                     this.recognition.start();
                 } catch (error) {
                     this.log(`❌ Failed to start speech: ${error}`, 'error');
@@ -369,6 +389,15 @@
 
                 try {
                     this.log('⏹️  Stopping speech recognition...');
+
+                    // Send accumulated text before stopping
+                    if (this.accumulatedText.trim()) {
+                        this.log(`📤 Sending final accumulated text: "${this.accumulatedText}"`);
+                        this.handleTranscript(this.accumulatedText.trim());
+                    } else {
+                        this.log('📝 No text accumulated to send');
+                    }
+
                     this.recognition.stop();
                 } catch (error) {
                     this.log(`❌ Failed to stop speech: ${error}`, 'error');
@@ -450,18 +479,25 @@
             handleSpeechError(error) {
                 this.log(`❌ Speech error: ${error}`, 'error');
 
-                // Auto-retry on certain errors
-                if (error === 'no-speech' && this.retryCount < this.maxRetries) {
-                    this.retryCount++;
-                    this.log(`🔄 Auto-retrying speech (${this.retryCount}/${this.maxRetries})`);
-
+                // Auto-restart on 'no-speech' errors to maintain continuous listening
+                if (error === 'no-speech' && this.isListening) {
+                    this.log(`🔄 Restarting recognition after no-speech...`);
                     setTimeout(() => {
-                        this.startListening();
+                        if (this.isListening) {  // Only restart if still supposed to be listening
+                            this.startListening();
+                        }
+                    }, 500);
+                } else if (error === 'network' && this.isListening) {
+                    // Restart after network errors too
+                    this.log(`🔄 Restarting recognition after network error...`);
+                    setTimeout(() => {
+                        if (this.isListening) {
+                            this.startListening();
+                        }
                     }, 1000);
                 } else {
                     this.updateStatus('error', `❌ ${error}`);
                     this.sendToController('SPEECH_ERROR', { error: error });
-                    this.retryCount = 0;
                 }
             }
 
