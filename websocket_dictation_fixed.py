@@ -71,6 +71,7 @@ class FixedDictationServer:
         self.controller = None
         self.http_server = None
         self.http_thread = None
+        self.ping_task = None
 
         # Generate session token for authentication
         self.session_token = secrets.token_urlsafe(32)
@@ -106,6 +107,9 @@ class FixedDictationServer:
         # Authentication successful - add to connected clients
         self.connected_clients.add(websocket)
 
+        # Start health monitoring for this client
+        self.start_health_monitoring()
+
         try:
             async for message in websocket:
                 try:
@@ -122,6 +126,8 @@ class FixedDictationServer:
             print(f"❌ WebSocket error: {e}")
         finally:
             self.connected_clients.discard(websocket)
+            if not self.connected_clients:
+                self.stop_health_monitoring()
 
     async def handle_message(self, data, websocket):
         """Process messages from Chrome tab"""
@@ -209,6 +215,32 @@ class FixedDictationServer:
     def is_connected(self):
         return len(self.connected_clients) > 0
 
+    def start_health_monitoring(self):
+        """Start periodic health checks"""
+        if self.ping_task is None:
+            self.ping_task = asyncio.create_task(self.health_monitor_loop())
+
+    def stop_health_monitoring(self):
+        """Stop health monitoring"""
+        if self.ping_task:
+            self.ping_task.cancel()
+            self.ping_task = None
+
+    async def health_monitor_loop(self):
+        """Periodic health check loop"""
+        try:
+            while True:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                if self.connected_clients:
+                    print("💓 Sending health check...")
+                    success = await self.send_command('PING')
+                    if not success:
+                        print("⚠️  Health check failed - no connected clients")
+        except asyncio.CancelledError:
+            print("🛑 Health monitoring stopped")
+        except Exception as e:
+            print(f"❌ Health monitor error: {e}")
+
 
 class WebSocketDictationController:
     def __init__(self):
@@ -267,9 +299,13 @@ class WebSocketDictationController:
         url = f"http://127.0.0.1:{self.ws_server.http_port}/speech-persistent.html?token={self.ws_server.session_token}"
 
         try:
+            # Launch Chrome with a new tab (simpler approach)
             subprocess.run(['open', '-a', 'Google Chrome', url], check=True)
             print("🌐 Launched Chrome tab with authentication token")
             self.tab_launched = True
+
+            # Add a small delay to let Chrome stabilize
+            await asyncio.sleep(1)
         except Exception as e:
             print(f"❌ Error launching Chrome: {e}")
 
@@ -327,7 +363,8 @@ class WebSocketDictationController:
         """Start dictation via WebSocket command"""
         if self.is_listening or not self.ws_server.is_connected():
             if not self.ws_server.is_connected():
-                print("❌ No Chrome tab connected")
+                print("❌ No Chrome tab connected - try restarting the system")
+                return
             return
 
         self.is_listening = True
@@ -339,8 +376,12 @@ class WebSocketDictationController:
             print("🎙️  Started continuous listening - speak as much as you want")
             print("    Text will accumulate until you press Right Cmd again")
         else:
-            print("❌ Failed to send start command")
+            print("❌ Failed to send start command - connection may be dead")
             self.is_listening = False
+
+            # Attempt to relaunch Chrome tab
+            print("🔄 Attempting to relaunch Chrome tab...")
+            await self.launch_persistent_chrome_tab()
 
     async def stop_dictation(self):
         """Stop dictation via WebSocket command"""
@@ -354,6 +395,7 @@ class WebSocketDictationController:
     def handle_transcript(self, transcript):
         """Handle transcript received from Chrome tab"""
         if not transcript or not transcript.strip():
+            print("⚠️  Empty transcript received - speech may not have been captured")
             return
 
         print(f"✨ Processing transcript: '{transcript}'")
@@ -367,6 +409,7 @@ class WebSocketDictationController:
             print("✅ Complete dictation session pasted!")
         except Exception as e:
             print(f"❌ Error handling transcript: {e}")
+            print("🔄 Transcript was:", transcript)
 
     def paste_to_active_app(self):
         """Paste clipboard content to active application"""

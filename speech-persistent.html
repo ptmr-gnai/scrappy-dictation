@@ -240,6 +240,10 @@
                         this.log(`📤 Sending accumulated text on end: "${this.accumulatedText}"`);
                         this.handleTranscript(this.accumulatedText.trim());
                         this.accumulatedText = ''; // Clear after sending
+                    } else {
+                        this.log('⚠️  No text captured during session', 'warning');
+                        // Still notify controller but with empty result
+                        this.sendToController('TRANSCRIPT_READY', { text: '' });
                     }
 
                     this.updateStatus('idle', '⏸️  Ready');
@@ -280,7 +284,7 @@
 
             connectWebSocket() {
                 try {
-                    this.websocket = new WebSocket('ws://localhost:8081');
+                    this.websocket = new WebSocket('ws://127.0.0.1:8081');
 
                     this.websocket.onopen = async () => {
                         this.log('🔌 Connected - authenticating...');
