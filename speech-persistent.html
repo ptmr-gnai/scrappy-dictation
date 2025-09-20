@@ -234,6 +234,14 @@
                 this.recognition.onend = () => {
                     this.isListening = false;
                     this.log('⏹️  Speech recognition ended');
+
+                    // Send any accumulated text when recognition ends
+                    if (this.accumulatedText.trim()) {
+                        this.log(`📤 Sending accumulated text on end: "${this.accumulatedText}"`);
+                        this.handleTranscript(this.accumulatedText.trim());
+                        this.accumulatedText = ''; // Clear after sending
+                    }
+
                     this.updateStatus('idle', '⏸️  Ready');
                     this.sendToController('SPEECH_ENDED');
                 };
@@ -274,15 +282,29 @@
                 try {
                     this.websocket = new WebSocket('ws://localhost:8081');
 
-                    this.websocket.onopen = () => {
-                        this.isConnected = true;
-                        this.retryCount = 0;
-                        this.log('🔌 Connected to controller');
-                        this.updateConnectionStatus(true);
-                        this.updateStatus('connected', '🔗 Connected');
+                    this.websocket.onopen = async () => {
+                        this.log('🔌 Connected - authenticating...');
 
-                        // Send ready signal
-                        this.sendToController('READY');
+                        // Get authentication token from URL parameter
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const token = urlParams.get('token');
+
+                        if (!token) {
+                            this.log('❌ No authentication token provided in URL', 'error');
+                            this.updateStatus('error', '❌ No auth token');
+                            return;
+                        }
+
+                        // Send authentication
+                        try {
+                            this.websocket.send(JSON.stringify({
+                                type: 'AUTH',
+                                token: token
+                            }));
+                            this.log('🔐 Sent authentication token');
+                        } catch (error) {
+                            this.log(`❌ Failed to send auth: ${error}`, 'error');
+                        }
                     };
 
                     this.websocket.onclose = () => {
@@ -303,9 +325,31 @@
                     this.websocket.onmessage = (event) => {
                         try {
                             const data = JSON.parse(event.data);
-                            this.handleCommand(data);
+
+                            // Handle authentication responses
+                            if (data.type === 'AUTH_SUCCESS') {
+                                this.isConnected = true;
+                                this.retryCount = 0;
+                                this.log('✅ Authentication successful');
+                                this.updateConnectionStatus(true);
+                                this.updateStatus('connected', '🔗 Authenticated');
+
+                                // Send ready signal after successful auth
+                                this.sendToController('READY');
+
+                            } else if (data.type === 'AUTH_FAILED') {
+                                this.log('❌ Authentication failed: ' + data.message, 'error');
+                                this.updateStatus('error', '❌ Auth failed');
+                                this.websocket.close();
+                                return;
+
+                            } else {
+                                // Handle normal commands after authentication
+                                this.handleCommand(data);
+                            }
+
                         } catch (error) {
-                            this.log(`❌ Invalid command received: ${event.data}`, 'error');
+                            this.log(`❌ Invalid message received: ${event.data}`, 'error');
                         }
                     };
 
@@ -390,13 +434,9 @@
                 try {
                     this.log('⏹️  Stopping speech recognition...');
 
-                    // Send accumulated text before stopping
-                    if (this.accumulatedText.trim()) {
-                        this.log(`📤 Sending final accumulated text: "${this.accumulatedText}"`);
-                        this.handleTranscript(this.accumulatedText.trim());
-                    } else {
-                        this.log('📝 No text accumulated to send');
-                    }
+                    // Don't send text here - let onend handler do it to avoid duplicates
+                    // The onend handler will catch any accumulated text
+                    this.log('📝 Will send accumulated text when recognition ends');
 
                     this.recognition.stop();
                 } catch (error) {
@@ -411,10 +451,20 @@
                 }
 
                 this.log(`✨ Processing transcript: "${transcript}"`);
-                this.updateStatus('processing', '📋 Copying...');
+                this.updateStatus('processing', '📋 Sending to controller...');
 
-                // Copy to clipboard
-                this.copyToClipboard(transcript);
+                // Send directly to Python controller (skip clipboard - Python handles pasting)
+                this.sendToController('TRANSCRIPT_READY', { text: transcript });
+
+                this.log(`📤 Sent transcript to controller: "${transcript}"`);
+                this.updateStatus('success', '✅ Sent!');
+
+                // Reset status after delay
+                setTimeout(() => {
+                    if (this.isConnected) {
+                        this.updateStatus('idle', '✅ Ready');
+                    }
+                }, 2000);
             }
 
             copyToClipboard(text) {

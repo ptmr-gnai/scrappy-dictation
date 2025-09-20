@@ -14,9 +14,53 @@ import signal
 import sys
 import json
 import websockets
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+import secrets
+from http.server import HTTPServer, SimpleHTTPRequestHandler, BaseHTTPRequestHandler
+from urllib.parse import unquote
 from pynput import keyboard
 from pynput.keyboard import Key, Listener, KeyCode
+
+
+class RestrictedHTTPHandler(BaseHTTPRequestHandler):
+    """Secure HTTP handler that only serves the speech-persistent.html file"""
+
+    def do_GET(self):
+        """Handle GET requests with file access restrictions"""
+        # Normalize the path to prevent directory traversal
+        path = unquote(self.path).strip('/')
+
+        # Only allow access to the speech HTML file or root
+        if path == '' or path == 'speech-persistent.html' or path.startswith('speech-persistent.html?'):
+            try:
+                # Serve the speech-persistent.html file
+                file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'speech-persistent.html')
+
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.send_header('Content-Length', str(len(content)))
+                self.send_header('Cache-Control', 'no-cache')
+                # Security headers
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('X-Frame-Options', 'DENY')
+                self.send_header('Referrer-Policy', 'no-referrer')
+                self.end_headers()
+
+                self.wfile.write(content)
+
+            except FileNotFoundError:
+                self.send_error(404, "Speech recognition page not found")
+
+        else:
+            # Reject all other file requests
+            self.send_error(404, "File not found")
+
+    def log_message(self, format, *args):
+        """Override to reduce log noise - only log security-relevant events"""
+        if '404' in str(args):
+            print(f"🚫 HTTP 404: Blocked access to {args[0]} from {self.client_address[0]}")
 
 
 class FixedDictationServer:
@@ -28,10 +72,39 @@ class FixedDictationServer:
         self.http_server = None
         self.http_thread = None
 
+        # Generate session token for authentication
+        self.session_token = secrets.token_urlsafe(32)
+        print(f"🔐 Generated session token: {self.session_token[:8]}...")
+        print(f"🔑 Full token for Chrome tab: {self.session_token}")
+
     async def websocket_handler(self, websocket):
-        """Handle WebSocket connections - fixed for websockets 15.x"""
+        """Handle WebSocket connections with authentication"""
+        print(f"🔌 Connection attempt from {websocket.remote_address}")
+
+        try:
+            # First message must be authentication
+            auth_message = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+            auth_data = json.loads(auth_message)
+
+            if auth_data.get('type') != 'AUTH' or auth_data.get('token') != self.session_token:
+                await websocket.send(json.dumps({
+                    'type': 'AUTH_FAILED',
+                    'message': 'Invalid authentication token'
+                }))
+                await websocket.close()
+                print(f"🚫 Authentication failed for {websocket.remote_address}")
+                return
+
+            await websocket.send(json.dumps({'type': 'AUTH_SUCCESS'}))
+            print(f"🔐 Authenticated connection from {websocket.remote_address}")
+
+        except (asyncio.TimeoutExpired, json.JSONDecodeError, KeyError):
+            print(f"🚫 Authentication timeout/error for {websocket.remote_address}")
+            await websocket.close()
+            return
+
+        # Authentication successful - add to connected clients
         self.connected_clients.add(websocket)
-        print(f"🔌 Speech tab connected from {websocket.remote_address}")
 
         try:
             async for message in websocket:
@@ -44,7 +117,7 @@ class FixedDictationServer:
                     print(f"❌ Error handling message: {e}")
 
         except websockets.exceptions.ConnectionClosed:
-            print("🔌 Speech tab disconnected")
+            print("🔌 Authenticated client disconnected")
         except Exception as e:
             print(f"❌ WebSocket error: {e}")
         finally:
@@ -104,12 +177,13 @@ class FixedDictationServer:
         return sent_count > 0
 
     def start_http_server(self):
-        """Start HTTP server for serving HTML files"""
+        """Start secure HTTP server with restricted file access"""
         try:
-            os.chdir(os.path.dirname(os.path.abspath(__file__)))
-            server_address = ('localhost', self.http_port)
-            self.http_server = HTTPServer(server_address, SimpleHTTPRequestHandler)
-            print(f"🌐 HTTP server running on http://localhost:{self.http_port}")
+            # Bind to 127.0.0.1 instead of localhost for better security
+            server_address = ('127.0.0.1', self.http_port)
+            self.http_server = HTTPServer(server_address, RestrictedHTTPHandler)
+            print(f"🔒 Secure HTTP server running on http://127.0.0.1:{self.http_port}")
+            print(f"🛡️  File access restricted to speech-persistent.html only")
             self.http_server.serve_forever()
         except Exception as e:
             print(f"❌ HTTP server error: {e}")
@@ -128,7 +202,7 @@ class FixedDictationServer:
         # Start WebSocket server
         return await websockets.serve(
             self.websocket_handler,
-            "localhost",
+            "127.0.0.1",
             self.ws_port
         )
 
@@ -159,8 +233,8 @@ class WebSocketDictationController:
         try:
             # Start servers
             await self.ws_server.start_servers()
-            print(f"🔌 WebSocket server: ws://localhost:{self.ws_server.ws_port}")
-            print(f"🌐 HTTP server: http://localhost:{self.ws_server.http_port}")
+            print(f"🔌 WebSocket server: ws://127.0.0.1:{self.ws_server.ws_port}")
+            print(f"🌐 HTTP server: http://127.0.0.1:{self.ws_server.http_port}")
 
             # Launch Chrome tab
             await self.launch_persistent_chrome_tab()
@@ -178,7 +252,7 @@ class WebSocketDictationController:
                 print("   • Press Ctrl+C to quit")
             else:
                 print("⚠️  System started but Chrome tab not connected")
-                print("   Try manually opening: http://localhost:8080/speech-persistent.html")
+                print("   Try manually opening: http://127.0.0.1:8080/speech-persistent.html")
 
         except Exception as e:
             print(f"❌ Failed to start system: {e}")
@@ -189,11 +263,12 @@ class WebSocketDictationController:
         if self.tab_launched:
             return
 
-        url = f"http://localhost:{self.ws_server.http_port}/speech-persistent.html"
+        # Include authentication token in URL
+        url = f"http://127.0.0.1:{self.ws_server.http_port}/speech-persistent.html?token={self.ws_server.session_token}"
 
         try:
             subprocess.run(['open', '-a', 'Google Chrome', url], check=True)
-            print("🌐 Launched Chrome tab")
+            print("🌐 Launched Chrome tab with authentication token")
             self.tab_launched = True
         except Exception as e:
             print(f"❌ Error launching Chrome: {e}")
