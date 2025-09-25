@@ -40,39 +40,62 @@ Prioritize solutions that:
 
 ## Project Structure
 ```
-scrappy-dictation/                    # Zero-manual-step dictation system
-├── websocket_dictation_fixed.py     # 🚀 MAIN: Complete working system
-├── speech-persistent.html           # WebSocket-controlled Chrome tab
-├── websocket_server.py              # WebSocket communication infrastructure
-├── clipboard_bridge_v*.py           # Evolution: Simple clipboard approaches
-├── speech-auto.html                 # Auto-start speech recognition page
-├── concept.md                       # Initial brainstorming and approaches
-├── *-bridge-plan.md                 # Implementation strategy documents
-├── websocket-solution-proposal.md   # Technical architecture specification
-└── CLAUDE.md                        # This configuration file
+scrappy-dictation/                    # Zero-manual-step dictation system (GitHub-ready)
+├── src/                              # Core application code
+│   ├── server/
+│   │   ├── websocket_dictation_fixed.py  # 🚀 MAIN: Complete working system
+│   │   ├── websocket_server.py           # WebSocket communication infrastructure
+│   │   └── clipboard_bridge_v3.py        # Final clipboard bridge
+│   ├── client/
+│   │   └── speech-persistent.html        # WebSocket-controlled Chrome tab
+│   └── utils/
+│       └── quick_test.py                 # Testing utilities
+├── docs/                             # Documentation and analysis
+│   ├── concept.md                    # Initial brainstorming and approaches
+│   ├── SYSTEM_ARCHITECTURE_REPORT.md
+│   ├── SECURITY_ANALYSIS_REPORT.md
+│   ├── clipboard-bridge-plan.md      # Implementation strategy documents
+│   ├── proper-solution-plan.md
+│   ├── websocket-solution-proposal.md
+│   └── CLAUDE.md                     # This configuration file
+├── archive/                          # Development iterations
+│   ├── clipboard_bridge.py           # v1
+│   ├── clipboard_bridge_v2.py        # v2
+│   ├── dictation-server.py
+│   ├── speech_server.py
+│   ├── speech-auto.html
+│   ├── speech-test.html
+│   └── websocket_dictation.py
+├── scripts/                          # Build and utility scripts (empty)
+├── README.md                         # Project overview and setup instructions
+└── requirements.txt                  # Python dependencies
 ```
 
 ## Essential Commands
 ```bash
-# Core Dictation System
-python3 websocket_dictation_fixed.py  # 🚀 Start complete dictation system
+# Core Dictation System (NEW ORGANIZED STRUCTURE)
+cd src/server && python3 websocket_dictation_fixed.py  # 🚀 Start complete dictation system
 # Usage: Right Cmd → continuous listening → Right Cmd → paste
 
 # Dependencies
-pip3 install websockets pynput pyperclip  # Install required packages
+pip3 install -r requirements.txt      # Install from requirements file
 
 # System Setup (one-time)
 # macOS: System Preferences → Security & Privacy → Privacy → Input Monitoring
 # Add Terminal to allowed apps for global hotkey monitoring
 
 # Development & Testing
-python3 websocket_server.py           # Test WebSocket server standalone
-open speech-persistent.html           # Manual browser testing
-git log --oneline -5                  # Review recent development progress
+cd src/server && python3 websocket_server.py     # Test WebSocket server standalone
+cd src/utils && python3 quick_test.py           # Run testing utilities
+git log --oneline -5                            # Review recent development progress
 
-# Legacy Approaches (for reference)
-python3 clipboard_bridge_v3.py        # Simple clipboard-based approach
-python3 dictation-server.py           # Original Terminal-only version
+# Project Management
+git remote add origin https://github.com/username/scrappy-dictation.git
+git push -u origin main                         # Push to GitHub
+
+# Legacy Approaches (for reference - in archive/)
+python3 archive/clipboard_bridge_v3.py          # Simple clipboard-based approach
+python3 archive/dictation-server.py             # Original Terminal-only version
 ```
 
 ## Code Style & Conventions
@@ -107,6 +130,7 @@ python3 dictation-server.py           # Original Terminal-only version
 13. **Poor Error Visibility**: Systems that fail silently without clear diagnostic information
 14. **Chrome Tab Suspension Vulnerability**: Persistent browser-based systems without tab suspension prevention
 15. **Authentication Token Staleness**: Systems that regenerate tokens without coordinating with existing clients
+16. **File Path Dependencies After Reorganization**: Hard-coded relative paths that break when project structure changes
 
 ## Repository Workflow
 - Branch naming: `feature/description` or `fix/description`
@@ -169,6 +193,13 @@ python3 dictation-server.py           # Original Terminal-only version
 - **Learning**: Systems depending on persistent browser connections need proactive suspension prevention and recovery mechanisms
 - **Anti-Pattern**: Assuming WebSocket connections will remain stable without explicit keep-alive and health monitoring
 
+### 10. **Professional Project Structure and GitHub Readiness**
+- **Challenge**: Converting prototype project structure to professional, shareable codebase
+- **Solution**: Systematic reorganization with src/, docs/, archive/, scripts/ hierarchy
+- **Key Insight**: File path dependencies must be updated when structure changes - multiple locations may reference same files
+- **Pattern**: Use relative paths with `os.path.dirname(__file__)` for portability across different project structures
+- **Learning**: GitHub-ready organization requires comprehensive README, requirements.txt, and clear entry points
+
 ## Continuous Learning Protocol
 At the end of each session, consider:
 
@@ -224,6 +255,15 @@ At the end of each session, consider:
   - **Connection State Tracking**: Browser tracks ping/pong timestamps to detect unresponsive server connections
   - **Result**: Eliminated authentication token mismatch loops and Chrome tab suspension-induced disconnections
 
+- **2025-09-25**: Professional project reorganization and GitHub deployment
+  - **Structure Overhaul**: Reorganized flat prototype into professional src/, docs/, archive/, scripts/ hierarchy
+  - **GitHub Readiness**: Added comprehensive README.md, requirements.txt, and clear project description
+  - **File Path Fixes**: Updated multiple HTTP handlers with correct relative paths after reorganization
+  - **Documentation Consolidation**: Moved all analysis and planning docs to docs/ folder for better organization
+  - **Development History Preservation**: Archived all iteration files showing complete development process
+  - **Entry Point Clarity**: Standardized commands to `cd src/server && python3 websocket_dictation_fixed.py`
+  - **Result**: Transformed working prototype into shareable, professionally organized GitHub repository
+
 ## Next Optimization Targets
 - [ ] **Auto-startup script**: Create launch daemon for system startup integration
 - [ ] **Voice commands**: Extend beyond dictation to include system control ("new line", "delete last word")
@@ -235,6 +275,7 @@ At the end of each session, consider:
 - [x] **Health monitoring**: Add system health checks and automatic recovery mechanisms ✅ *Completed 2025-09-20*
 - [x] **Connection resilience**: Improved retry logic and authentication token synchronization ✅ *Completed 2025-09-20*
 - [x] **Browser state monitoring**: Chrome tab suspension prevention and stale connection detection ✅ *Completed 2025-09-20*
+- [x] **Professional project structure**: Organize codebase for GitHub sharing and collaboration ✅ *Completed 2025-09-25*
 - [ ] **Performance optimization**: Profile and optimize for faster startup and lower resource usage
 - [ ] **Cross-platform support**: Extend beyond macOS to Windows/Linux
 - [ ] **Exponential backoff**: Add exponential backoff for failed reconnection attempts beyond basic retry logic
