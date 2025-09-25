@@ -33,8 +33,9 @@ Prioritize solutions that:
 - **Speech Recognition**: Chrome Web Speech API (Google's engine)
 - **WebSocket Communication**: websockets 15.x
 - **System Integration**: pynput (global hotkeys), pyperclip (clipboard)
-- **HTTP Server**: Built-in Python http.server
-- **Browser**: Google Chrome (persistent background tab)
+- **HTTP Server**: Built-in Python http.server with custom secure handlers
+- **Security**: secrets module for token generation, URL-safe authentication
+- **Browser**: Google Chrome (persistent background tab with token auth)
 - **Platform**: macOS (accessibility APIs)
 
 ## Project Structure
@@ -98,6 +99,14 @@ python3 dictation-server.py           # Original Terminal-only version
 5. **Missing Documentation**: Add inline docs for complex logic
 6. **Hard-coded Values**: Move to configuration files
 7. **Copy-Paste Debugging**: Create proper debugging workflows
+8. **Insecure Defaults**: Use localhost, plain HTTP, unrestricted file access in production
+9. **Race Conditions**: Multiple async handlers for same event without coordination
+10. **Silent Failures**: Browser errors that don't break functionality but indicate architectural issues
+11. **Connection Address Mismatches**: Using localhost in client but 127.0.0.1 in server (or vice versa)
+12. **Missing Health Monitoring**: Systems with external dependencies (browsers, network) without heartbeat checks
+13. **Poor Error Visibility**: Systems that fail silently without clear diagnostic information
+14. **Chrome Tab Suspension Vulnerability**: Persistent browser-based systems without tab suspension prevention
+15. **Authentication Token Staleness**: Systems that regenerate tokens without coordinating with existing clients
 
 ## Repository Workflow
 - Branch naming: `feature/description` or `fix/description`
@@ -133,6 +142,33 @@ python3 dictation-server.py           # Original Terminal-only version
 - **V3**: User-controlled start/stop with text accumulation → Perfect workflow
 - **Learning**: UX details matter more than technical sophistication
 
+### 6. **Security-First Production Hardening**
+- **Challenge**: Moving from prototype to production-ready system with security gaps
+- **Solution**: Token authentication, restricted file access, secure network binding
+- **Anti-Pattern**: Using localhost and simple HTTP handlers in production
+- **Learning**: Security hardening should be systematic - authentication, authorization, secure defaults
+
+### 7. **Timing and Race Condition Resolution**
+- **Problem**: Speech recognition finishing after stop command, causing duplicate processing
+- **Root Cause**: Async speech processing vs synchronous stop commands
+- **Solution**: Centralize transcript handling in onend event, eliminate duplicate paths
+- **Pattern**: When dealing with async events, choose single authoritative handler to prevent race conditions
+
+### 8. **Reliability-First Debugging Methodology**
+- **Approach**: Use actual production failure patterns (terminal output) to guide fixes rather than theoretical issues
+- **Diagnostic Process**: Authentication failures → connection analysis → health monitoring → auto-recovery
+- **Key Insight**: Small misconfigurations (localhost vs 127.0.0.1) can cause total system unreliability
+- **Solution Pattern**: Implement health monitoring + auto-recovery for any system with external dependencies (Chrome, network)
+- **Learning**: Production reliability requires proactive monitoring, not just reactive fixes
+
+### 9. **Chrome Tab Resource Management and Browser Lifecycle**
+- **Challenge**: Chrome aggressively suspends background tabs to save resources, breaking persistent WebSocket connections
+- **Root Cause**: Browser tabs running long-duration speech recognition are treated as "inactive" after periods without user interaction
+- **Solution**: Multi-layered approach - tab activity simulation, connection health monitoring, and automatic recovery
+- **Key Innovation**: Independent connection health tracking on both client and server sides with coordinated recovery
+- **Learning**: Systems depending on persistent browser connections need proactive suspension prevention and recovery mechanisms
+- **Anti-Pattern**: Assuming WebSocket connections will remain stable without explicit keep-alive and health monitoring
+
 ## Continuous Learning Protocol
 At the end of each session, consider:
 
@@ -152,6 +188,14 @@ At the end of each session, consider:
   - **Technical Win**: Thread-safe async/sync coordination for global hotkeys + WebSocket communication
   - **Result**: Right Cmd → continuous listening → Right Cmd → complete text paste (no interruptions)
 
+- **2025-09-20**: Security hardening and production optimization
+  - **Authentication**: Implemented token-based WebSocket authentication with secrets.token_urlsafe(32)
+  - **Secure HTTP**: Custom RestrictedHTTPHandler prevents directory traversal, only serves speech-persistent.html
+  - **Network Security**: Bind to 127.0.0.1 instead of localhost, added security headers (X-Content-Type-Options, X-Frame-Options)
+  - **Timing Fix**: Resolved transcript processing race condition by centralizing in onend handler
+  - **Clean Architecture**: Eliminated duplicate transcript processing and unnecessary Chrome clipboard operations
+  - **Error Elimination**: Fixed "NotAllowedError" clipboard focus issues by simplifying data flow
+
 - **2025-09-20**: Solved websockets 15.x compatibility issues through iterative debugging
   - **Pattern**: Modern library versions often change handler signatures - always check version compatibility
   - **Solution**: Used proper async function signatures instead of lambda wrappers
@@ -161,6 +205,25 @@ At the end of each session, consider:
   - **Breakthrough**: Chrome Web Speech API provides high-quality recognition via cloud processing
   - **Architecture**: Local WebSocket server + persistent browser tab = best of both worlds
 
+- **2025-09-20**: Critical reliability fixes for production WebSocket dictation system
+  - **Root Cause Analysis**: Used terminal output to identify specific failure patterns (auth failures, connection mismatches, missing transcripts)
+  - **Connection Fix**: Resolved localhost vs 127.0.0.1 mismatch causing WebSocket connection failures
+  - **Health Monitoring**: Implemented 30-second ping/pong health checks with automatic recovery
+  - **Chrome Management**: Simplified tab launch process with stabilization delays to prevent duplicate connections
+  - **Error Handling**: Added graceful handling for empty speech sessions and enhanced debugging output
+  - **Auto-Recovery**: System now automatically attempts to reconnect when Chrome tab dies
+  - **Result**: Transformed unreliable system requiring frequent restarts into robust production-ready dictation tool
+
+- **2025-09-20**: Resolved persistent WebSocket authentication token mismatches and Chrome tab suspension issues
+  - **Token Synchronization Fix**: Server now sends current valid token to browser during auth failures for automatic URL updates
+  - **Chrome Tab Suspension Prevention**: Implemented title updates every 10s to prevent Chrome from suspending background dictation tab
+  - **Independent Connection Health Monitoring**: Browser-side detection of stale connections (45s timeout) with forced reconnection
+  - **Aggressive Keep-Alive**: Reduced server health checks from 30s to 15s intervals for faster disconnect detection
+  - **Enhanced Diagnostics**: Added WebSocket close code/reason logging for better connection failure analysis
+  - **Improved Retry Logic**: Increased max retries from 3 to 5 attempts with faster initial reconnect (1s vs 2s)
+  - **Connection State Tracking**: Browser tracks ping/pong timestamps to detect unresponsive server connections
+  - **Result**: Eliminated authentication token mismatch loops and Chrome tab suspension-induced disconnections
+
 ## Next Optimization Targets
 - [ ] **Auto-startup script**: Create launch daemon for system startup integration
 - [ ] **Voice commands**: Extend beyond dictation to include system control ("new line", "delete last word")
@@ -168,7 +231,17 @@ At the end of each session, consider:
 - [ ] **Text formatting**: Voice-controlled punctuation and formatting ("all caps", "new paragraph")
 - [ ] **Custom vocabulary**: Personal name/term recognition and auto-correction
 - [ ] **Usage analytics**: Track dictation sessions and accuracy improvements over time
-- [ ] **Port binding optimization**: Smart port selection to avoid conflicts with other services
+- [ ] **Configuration management**: Move hard-coded ports and settings to config file
+- [x] **Health monitoring**: Add system health checks and automatic recovery mechanisms ✅ *Completed 2025-09-20*
+- [x] **Connection resilience**: Improved retry logic and authentication token synchronization ✅ *Completed 2025-09-20*
+- [x] **Browser state monitoring**: Chrome tab suspension prevention and stale connection detection ✅ *Completed 2025-09-20*
+- [ ] **Performance optimization**: Profile and optimize for faster startup and lower resource usage
+- [ ] **Cross-platform support**: Extend beyond macOS to Windows/Linux
+- [ ] **Exponential backoff**: Add exponential backoff for failed reconnection attempts beyond basic retry logic
+- [ ] **Diagnostic dashboard**: Web interface showing connection status, speech session stats, error logs
+- [ ] **Connection failure analysis**: Deep logging of network conditions during disconnections to identify patterns
+- [ ] **Background tab optimization**: Investigate Chrome APIs for better background tab resource management
+- [ ] **Token rotation**: Implement periodic token refresh without breaking active connections
 
 ## Do Not
 - Manually repeat tasks that could be scripted

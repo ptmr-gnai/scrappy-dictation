@@ -263,6 +263,11 @@ class WebSocketDictationController:
         # Store the event loop for cross-thread access
         self.loop = None
 
+        # Hotkey thread monitoring
+        self.listener_thread = None
+        self.hotkey_health_timer = None
+        self.last_hotkey_activity = time.time()
+
     async def start_system(self):
         """Initialize the complete WebSocket dictation system"""
         print("🚀 Starting WebSocket dictation system...")
@@ -331,7 +336,11 @@ class WebSocketDictationController:
     def on_key_press(self, key):
         """Handle key press events"""
         try:
+            # Update activity timestamp for any key press
+            self.last_hotkey_activity = time.time()
+
             if key == self.hotkey_key and not self.hotkey_pressed:
+                print(f"🎯 Right Cmd detected at {time.strftime('%H:%M:%S')}")
                 self.hotkey_pressed = True
                 # Schedule async task using thread-safe call
                 if self.loop:
@@ -345,6 +354,9 @@ class WebSocketDictationController:
     def on_key_release(self, key):
         """Handle key release events"""
         try:
+            # Update activity timestamp for any key release
+            self.last_hotkey_activity = time.time()
+
             if key == self.hotkey_key:
                 self.hotkey_pressed = False
             if key == Key.ctrl_l or key == Key.ctrl_r:
@@ -441,12 +453,16 @@ class WebSocketDictationController:
 
         await self.start_system()
 
+        # Start hotkey health monitoring
+        self.start_hotkey_health_monitoring()
+
         # Keep the async loop running
         try:
             while True:
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
             print("\n👋 Shutting down...")
+            self.stop_hotkey_health_monitoring()
 
     def run(self):
         """Start the complete dictation system"""
@@ -460,16 +476,7 @@ class WebSocketDictationController:
 
             # Start hotkey listener in main thread
             print("🎤 Starting hotkey listener...")
-
-            def run_listener():
-                with Listener(
-                    on_press=self.on_key_press,
-                    on_release=self.on_key_release
-                ) as listener:
-                    listener.join()
-
-            listener_thread = threading.Thread(target=run_listener, daemon=True)
-            listener_thread.start()
+            self.start_hotkey_listener()
 
             # Run the event loop
             loop.run_until_complete(async_task)
@@ -478,6 +485,44 @@ class WebSocketDictationController:
             print("\n👋 Goodbye!")
         except Exception as e:
             print(f"❌ Fatal error: {e}")
+
+    def start_hotkey_listener(self):
+        """Start the hotkey listener thread"""
+        def run_listener():
+            try:
+                print("🎯 Hotkey listener thread started")
+                with Listener(
+                    on_press=self.on_key_press,
+                    on_release=self.on_key_release
+                ) as listener:
+                    listener.join()
+            except Exception as e:
+                print(f"❌ Hotkey listener thread crashed: {e}")
+
+        self.listener_thread = threading.Thread(target=run_listener, daemon=True)
+        self.listener_thread.start()
+        print(f"🔄 Hotkey listener thread started (ID: {self.listener_thread.ident})")
+
+    def start_hotkey_health_monitoring(self):
+        """Monitor hotkey listener health"""
+        async def hotkey_health_check():
+            while True:
+                await asyncio.sleep(30)  # Check every 30 seconds
+
+                # Check if thread is alive
+                if not self.listener_thread or not self.listener_thread.is_alive():
+                    print("⚠️  Hotkey listener thread died - restarting...")
+                    self.start_hotkey_listener()
+                else:
+                    print(f"✅ Hotkey listener healthy (last activity: {int(time.time() - self.last_hotkey_activity)}s ago)")
+
+        self.hotkey_health_timer = asyncio.create_task(hotkey_health_check())
+
+    def stop_hotkey_health_monitoring(self):
+        """Stop hotkey health monitoring"""
+        if self.hotkey_health_timer:
+            self.hotkey_health_timer.cancel()
+            self.hotkey_health_timer = None
 
 
 if __name__ == "__main__":
