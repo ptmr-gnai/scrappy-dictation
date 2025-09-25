@@ -26,8 +26,10 @@ class RestrictedHTTPHandler(BaseHTTPRequestHandler):
         # Only allow access to the speech HTML file or root
         if path == '' or path == 'speech-persistent.html':
             try:
-                # Serve the speech-persistent.html file
-                file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'speech-persistent.html')
+                # Serve the speech-persistent.html file from ../client/
+                server_dir = os.path.dirname(os.path.abspath(__file__))
+                client_dir = os.path.join(server_dir, '..', 'client')
+                file_path = os.path.join(client_dir, 'speech-persistent.html')
 
                 with open(file_path, 'rb') as f:
                     content = f.read()
